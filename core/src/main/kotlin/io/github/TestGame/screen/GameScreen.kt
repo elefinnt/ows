@@ -81,13 +81,9 @@ class GameScreen : KtxScreen {
 
         spriteBatch.end()
 
-        // Draw power-ups and enemy health bars
+        // Draw power-ups
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled)
         powerUps.values.forEach { it.render(shapeRenderer) }
-        
-        // Draw enemy health bars
-        enemies.values.forEach { it.renderHealthBar(shapeRenderer) }
-        
         shapeRenderer.end()
 
         // Draw enemies (sprites)

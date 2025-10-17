@@ -52,7 +52,7 @@ class Player : Disposable {
     private var attackCooldown = 0f
     private val attackSpeed = 1.0f  // Time between attacks (seconds)
     private val attackAnimationDuration = 0.32f  // How long the attack animation plays (4 frames * 0.08s)
-    private val attackDamage = 25f
+    private val attackDamage = 33f  // 3 hits to kill a bat (99 HP / 33 = 3)
     private val knockbackStrength = 5f
     private var lastAttackedEnemy: Enemy? = null
 

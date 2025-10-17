@@ -22,7 +22,7 @@ class Enemy(var x: Float, var y: Float) : Disposable {
     private val attackRange = 1.5f  // Range to start attack wind-up
 
     // Health system
-    private val maxHealth = 100f
+    private val maxHealth = 99f
     var currentHealth = maxHealth
         private set
     private var isHit = false
@@ -237,10 +237,23 @@ class Enemy(var x: Float, var y: Float) : Disposable {
         val currentAnimation = if (isAttacking) attackAnimation else idleAnimation
         val currentFrame = currentAnimation.getKeyFrame(stateTime, !isAttacking)
 
-        // Flash red when hit
-        if (isHit) {
-            batch.setColor(1f, 0.5f, 0.5f, 1f)
+        // Apply color tint based on health
+        val healthPercentage = currentHealth / maxHealth
+        val healthColor = when {
+            isHit -> Color(1f, 0.3f, 0.3f, 1f)  // Flash bright red when just hit
+            healthPercentage > 0.67f -> Color(1f, 1f, 1f, 1f)  // 99 HP: white/normal
+            healthPercentage > 0.34f -> Color(1f, 0.7f, 0.7f, 1f)  // 66 HP: Light red
+            else -> Color(1f, 0.4f, 0.4f, 1f)  // 33 HP: Dark red
         }
+        
+        // First frame of explosion matches health color, then transition to white
+        val color = if (isAttacking && attackAnimationTime > 0.08f) {
+            Color(1f, 1f, 1f, 1f)  // Explosion frames 1-7: white
+        } else {
+            healthColor  // Normal movement or explosion frame 0: health color
+        }
+        
+        batch.setColor(color)
 
         // Draw the sprite
         batch.draw(
@@ -255,24 +268,6 @@ class Enemy(var x: Float, var y: Float) : Disposable {
         batch.setColor(1f, 1f, 1f, 1f)
     }
 
-    /**
-     * Renders the health bar above the enemy
-     */
-    fun renderHealthBar(shapeRenderer: ShapeRenderer) {
-        val barWidth = size
-        val barHeight = 0.2f
-        val barX = x
-        val barY = y + size + 0.1f
-
-        // Background (red)
-        shapeRenderer.color = Color.RED
-        shapeRenderer.rect(barX, barY, barWidth, barHeight)
-
-        // Foreground (green based on health percentage)
-        val healthPercentage = currentHealth / maxHealth
-        shapeRenderer.color = Color.GREEN
-        shapeRenderer.rect(barX, barY, barWidth * healthPercentage, barHeight)
-    }
 
     /**
      * Checks if the enemy is touching the player
