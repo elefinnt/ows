@@ -6,6 +6,7 @@ import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer
 import com.badlogic.gdx.utils.viewport.ExtendViewport
+import io.github.TestGame.entity.Enemy
 import io.github.TestGame.entity.Player
 import io.github.TestGame.entity.PowerUp
 import io.github.TestGame.ui.VirtualJoystick
@@ -22,9 +23,13 @@ class GameScreen : KtxScreen {
     // Terrain properties
     private val tileSize = 1f
     private val groundTile = Texture("graphics/Top-Down Simple Summer_Ground 14.png")
-    
+
     // Power-ups
     private val powerUps = mutableMapOf<String, PowerUp>()
+
+    // Enemies
+    private var enemy: Enemy? = null
+
     private val worldSeed = 12345
 
     init {
@@ -39,12 +44,17 @@ class GameScreen : KtxScreen {
     override fun render(delta: Float) {
         handleInput(delta)
 
-        // Update player
-        player.update(delta)
-        
+        // Spawn and update enemy
+        spawnEnemy()
+        updateEnemy(delta)
+
+        // Update player (pass enemies for attack detection)
+        val enemies = enemy?.let { listOf(it) } ?: emptyList()
+        player.update(delta, enemies)
+
         // Spawn power-ups in visible area
         spawnPowerUps()
-        
+
         // Check power-up collisions
         checkPowerUpCollisions()
 
@@ -63,19 +73,24 @@ class GameScreen : KtxScreen {
 
         // Draw everything in one batch
         spriteBatch.begin()
-        
+
         // Draw terrain tiles
         drawProceduralTerrain()
-        
+
         // Draw animated player
         player.render(spriteBatch)
-        
+
         spriteBatch.end()
-        
+
         // Draw power-ups (circles)
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled)
         powerUps.values.forEach { it.render(shapeRenderer) }
         shapeRenderer.end()
+
+        // Draw enemy (sprite)
+        spriteBatch.begin()
+        enemy?.render(spriteBatch)
+        spriteBatch.end()
 
         // Draw joystick on top
         joystick.render(delta)
@@ -104,7 +119,7 @@ class GameScreen : KtxScreen {
             }
         }
     }
-    
+
     private fun shouldSpawnPowerUp(x: Int, y: Int): Boolean {
         // Use hash function to determine if a power-up should spawn here
         var hash = worldSeed + 999  // Different offset from terrain
@@ -113,11 +128,11 @@ class GameScreen : KtxScreen {
         hash = hash xor (hash shr 16)
         hash = hash * 0x45d9f3b.toInt()
         hash = hash xor (hash shr 13)
-        
+
         val value = (hash and 0x7fffffff) % 100
         return value < 5  // 5% chance of spawning a power-up
     }
-    
+
     private fun checkPowerUpCollisions() {
         powerUps.values.forEach { powerUp ->
             if (powerUp.checkCollision(player.x, player.y, player.size)) {
@@ -127,7 +142,22 @@ class GameScreen : KtxScreen {
             }
         }
     }
-    
+
+    private fun spawnEnemy() {
+        // Spawn one enemy if none exists
+        if (enemy == null) {
+            // Spawn enemy right on the player to see it immediately
+            val spawnX = player.x
+            val spawnY = player.y
+            enemy = Enemy(spawnX, spawnY)
+        }
+    }
+
+    private fun updateEnemy(delta: Float) {
+        // Update the single enemy
+        enemy?.update(delta, player.x, player.y, player.size)
+    }
+
     private fun drawProceduralTerrain() {
         // Calculate visible area based on camera position
         val camX = viewport.camera.position.x
@@ -169,20 +199,6 @@ class GameScreen : KtxScreen {
             moveY = joyY
         }
 
-        // Keyboard controls as fallback (WASD or Arrow keys)
-        if (Gdx.input.isKeyPressed(Input.Keys.LEFT) || Gdx.input.isKeyPressed(Input.Keys.A)) {
-            moveX = -1f
-        }
-        if (Gdx.input.isKeyPressed(Input.Keys.RIGHT) || Gdx.input.isKeyPressed(Input.Keys.D)) {
-            moveX = 1f
-        }
-        if (Gdx.input.isKeyPressed(Input.Keys.DOWN) || Gdx.input.isKeyPressed(Input.Keys.S)) {
-            moveY = -1f
-        }
-        if (Gdx.input.isKeyPressed(Input.Keys.UP) || Gdx.input.isKeyPressed(Input.Keys.W)) {
-            moveY = 1f
-        }
-
         // Set player velocity (infinite scrolling - no bounds!)
         player.setVelocity(moveX, moveY)
     }
@@ -198,6 +214,9 @@ class GameScreen : KtxScreen {
         groundTile.dispose()
         joystick.dispose()
         player.dispose()
+
+        // Dispose enemy
+        enemy?.dispose()
     }
 
     companion object {
