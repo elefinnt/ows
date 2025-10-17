@@ -28,7 +28,7 @@ class GameScreen : KtxScreen {
     private val powerUps = mutableMapOf<String, PowerUp>()
 
     // Enemies
-    private var enemy: Enemy? = null
+    private val enemies = mutableMapOf<String, Enemy>()
 
     private val worldSeed = 12345
 
@@ -44,13 +44,12 @@ class GameScreen : KtxScreen {
     override fun render(delta: Float) {
         handleInput(delta)
 
-        // Spawn and update enemy
-        spawnEnemy()
-        updateEnemy(delta)
+        // Spawn and update enemies
+        spawnEnemies()
+        updateEnemies(delta)
 
         // Update player (pass enemies for attack detection)
-        val enemies = enemy?.let { listOf(it) } ?: emptyList()
-        player.update(delta, enemies)
+        player.update(delta, enemies.values.toList())
 
         // Spawn power-ups in visible area
         spawnPowerUps()
@@ -82,14 +81,18 @@ class GameScreen : KtxScreen {
 
         spriteBatch.end()
 
-        // Draw power-ups (circles)
+        // Draw power-ups and enemy health bars
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled)
         powerUps.values.forEach { it.render(shapeRenderer) }
+        
+        // Draw enemy health bars
+        enemies.values.forEach { it.renderHealthBar(shapeRenderer) }
+        
         shapeRenderer.end()
 
-        // Draw enemy (sprite)
+        // Draw enemies (sprites)
         spriteBatch.begin()
-        enemy?.render(spriteBatch)
+        enemies.values.forEach { it.render(spriteBatch) }
         spriteBatch.end()
 
         // Draw joystick on top
@@ -143,19 +146,86 @@ class GameScreen : KtxScreen {
         }
     }
 
-    private fun spawnEnemy() {
-        // Spawn one enemy if none exists
-        if (enemy == null) {
-            // Spawn enemy right on the player to see it immediately
-            val spawnX = player.x
-            val spawnY = player.y
-            enemy = Enemy(spawnX, spawnY)
+    private fun spawnEnemies() {
+        // Calculate visible area based on camera position
+        val camX = viewport.camera.position.x
+        val camY = viewport.camera.position.y
+        val halfWidth = viewport.worldWidth / 2f
+        val halfHeight = viewport.worldHeight / 2f
+
+        // Calculate tile range for spawning (with padding)
+        val startTileX = ((camX - halfWidth - 3f) / tileSize).toInt()
+        val endTileX = ((camX + halfWidth + 3f) / tileSize).toInt()
+        val startTileY = ((camY - halfHeight - 3f) / tileSize).toInt()
+        val endTileY = ((camY + halfHeight + 3f) / tileSize).toInt()
+
+        // Spawn enemies procedurally based on tile coordinates
+        for (x in startTileX..endTileX) {
+            for (y in startTileY..endTileY) {
+                val key = "$x,$y"
+                if (!enemies.containsKey(key) && shouldSpawnEnemy(x, y)) {
+                    enemies[key] = Enemy(x.toFloat(), y.toFloat())
+                }
+            }
         }
     }
 
-    private fun updateEnemy(delta: Float) {
-        // Update the single enemy
-        enemy?.update(delta, player.x, player.y, player.size)
+    private fun shouldSpawnEnemy(x: Int, y: Int): Boolean {
+        // Use hash function to determine if an enemy should spawn here
+        var hash = worldSeed + 777  // Different offset from power-ups
+        hash = hash * 31 + x
+        hash = hash * 31 + y
+        hash = hash xor (hash shr 16)
+        hash = hash * 0x45d9f3b.toInt()
+        hash = hash xor (hash shr 13)
+
+        val value = (hash and 0x7fffffff) % 1000
+        return value < 15  // 1.5% chance of spawning an enemy
+    }
+
+    private fun updateEnemies(delta: Float) {
+        val deadEnemies = mutableListOf<String>()
+        val explosionRadius = 3f  // Radius that affects other enemies
+        
+        // Update all enemies
+        enemies.forEach { (key, enemy) ->
+            val playerDamaged = enemy.update(delta, player.x, player.y, player.size)
+            
+            // Apply damage and knockback to player if hit
+            if (playerDamaged) {
+                val knockback = enemy.getKnockbackForPlayer(player.x, player.y, player.size)
+                player.takeDamage(enemy.getDamage(), knockback.first, knockback.second)
+                log.debug { "Player hit! Health: ${player.currentHealth}" }
+            }
+            
+            // Check if this enemy just started exploding
+            if (enemy.isExploding()) {
+                val (explosionX, explosionY) = enemy.getCenterPosition()
+                
+                // Damage other nearby enemies
+                enemies.forEach { (otherKey, otherEnemy) ->
+                    if (key != otherKey && !otherEnemy.isDead()) {
+                        if (otherEnemy.isInExplosionRadius(explosionX, explosionY, explosionRadius)) {
+                            // Kill the enemy caught in explosion
+                            otherEnemy.takeDamage(999f, 0f, 0f)
+                            log.debug { "Enemy caught in explosion chain reaction!" }
+                        }
+                    }
+                }
+            }
+            
+            // Mark dead enemies for removal
+            if (enemy.isDead()) {
+                deadEnemies.add(key)
+            }
+        }
+        
+        // Remove dead enemies
+        deadEnemies.forEach { key ->
+            log.debug { "Enemy defeated!" }
+            enemies[key]?.dispose()
+            enemies.remove(key)
+        }
     }
 
     private fun drawProceduralTerrain() {
@@ -215,8 +285,8 @@ class GameScreen : KtxScreen {
         joystick.dispose()
         player.dispose()
 
-        // Dispose enemy
-        enemy?.dispose()
+        // Dispose all enemies
+        enemies.values.forEach { it.dispose() }
     }
 
     companion object {

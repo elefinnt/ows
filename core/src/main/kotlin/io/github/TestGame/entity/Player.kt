@@ -22,10 +22,23 @@ class Player : Disposable {
     var y = 0f
     val size = 2f  // 2x scale
 
+    // Health system
+    private val maxHealth = 100f
+    var currentHealth = maxHealth
+        private set
+    private var isHit = false
+    private var hitFlashTime = 0f
+    private val hitFlashDuration = 0.15f
+
     // Movement
     private val baseMoveSpeed = 3.5f
     private var velocityX = 0f
     private var velocityY = 0f
+
+    // Knockback
+    private var knockbackVelocityX = 0f
+    private var knockbackVelocityY = 0f
+    private val knockbackDecay = 10f
 
     // Speed boost
     private var speedBoostTimer = 0f
@@ -39,6 +52,9 @@ class Player : Disposable {
     private var attackCooldown = 0f
     private val attackSpeed = 1.0f  // Time between attacks (seconds)
     private val attackAnimationDuration = 0.32f  // How long the attack animation plays (4 frames * 0.08s)
+    private val attackDamage = 25f
+    private val knockbackStrength = 5f
+    private var lastAttackedEnemy: Enemy? = null
 
     // Animation state
     private var stateTime = 0f
@@ -105,6 +121,14 @@ class Player : Disposable {
     fun update(delta: Float, enemies: List<Enemy> = emptyList()) {
         stateTime += delta
 
+        // Update hit flash timer
+        if (hitFlashTime > 0f) {
+            hitFlashTime -= delta
+            if (hitFlashTime <= 0f) {
+                isHit = false
+            }
+        }
+
         // Update speed boost timer
         if (speedBoostTimer > 0f) {
             speedBoostTimer -= delta
@@ -127,6 +151,20 @@ class Player : Disposable {
 
         // Check for nearby enemies and attack
         checkAndAttack(enemies, delta)
+
+        // Apply knockback
+        if (knockbackVelocityX != 0f || knockbackVelocityY != 0f) {
+            x += knockbackVelocityX * delta
+            y += knockbackVelocityY * delta
+
+            // Decay knockback
+            knockbackVelocityX -= knockbackVelocityX * knockbackDecay * delta
+            knockbackVelocityY -= knockbackVelocityY * knockbackDecay * delta
+
+            // Stop when very small
+            if (kotlin.math.abs(knockbackVelocityX) < 0.1f) knockbackVelocityX = 0f
+            if (kotlin.math.abs(knockbackVelocityY) < 0.1f) knockbackVelocityY = 0f
+        }
 
         // Update position based on velocity
         x += velocityX * delta
@@ -171,7 +209,7 @@ class Player : Disposable {
      * Checks for nearby enemies and initiates attack if in range
      */
     private fun checkAndAttack(enemies: List<Enemy>, delta: Float) {
-        // Find closest enemy within melee range
+        // Find closest enemy within melee range that player is facing
         var closestEnemy: Enemy? = null
         var closestDistance = Float.MAX_VALUE
 
@@ -179,6 +217,8 @@ class Player : Disposable {
         val playerCenterY = y + size / 2f
 
         for (enemy in enemies) {
+            if (enemy.isDead()) continue
+
             val enemyCenterX = enemy.x + enemy.size / 2f
             val enemyCenterY = enemy.y + enemy.size / 2f
 
@@ -186,18 +226,45 @@ class Player : Disposable {
             val dy = enemyCenterY - playerCenterY
             val distance = sqrt(dx * dx + dy * dy)
 
-            if (distance <= meleeRange && distance < closestDistance) {
+            // Check if enemy is in range and player is facing it
+            if (distance <= meleeRange && distance < closestDistance && isFacingEnemy(dx, dy)) {
                 closestDistance = distance
                 closestEnemy = enemy
             }
         }
 
-        // If enemy in range and attack ready, start attack
+        // If enemy in range and attack ready, start attack and deal damage
         if (closestEnemy != null && attackCooldown <= 0f && !isAttacking) {
             isAttacking = true
             attackAnimationTime = 0f
             attackCooldown = attackSpeed
             stateTime = 0f  // Reset for attack animation
+            lastAttackedEnemy = closestEnemy
+
+            // Deal damage and knockback
+            val enemyCenterX = closestEnemy.x + closestEnemy.size / 2f
+            val enemyCenterY = closestEnemy.y + closestEnemy.size / 2f
+            val dx = enemyCenterX - playerCenterX
+            val dy = enemyCenterY - playerCenterY
+            val distance = sqrt(dx * dx + dy * dy)
+
+            if (distance > 0) {
+                val knockbackX = (dx / distance) * knockbackStrength
+                val knockbackY = (dy / distance) * knockbackStrength
+                closestEnemy.takeDamage(attackDamage, knockbackX, knockbackY)
+            }
+        }
+    }
+
+    /**
+     * Checks if the player is facing the enemy based on their direction
+     */
+    private fun isFacingEnemy(dx: Float, dy: Float): Boolean {
+        return when (currentDirection) {
+            Direction.DOWN -> dy < 0  // Enemy is below
+            Direction.UP -> dy > 0    // Enemy is above
+            Direction.LEFT -> dx < 0  // Enemy is to the left
+            Direction.RIGHT -> dx > 0 // Enemy is to the right
         }
     }
 
@@ -205,6 +272,26 @@ class Player : Disposable {
      * Returns whether the player is currently attacking
      */
     fun isCurrentlyAttacking(): Boolean = isAttacking
+
+    /**
+     * Takes damage and applies knockback
+     */
+    fun takeDamage(damage: Float, knockbackX: Float, knockbackY: Float) {
+        currentHealth -= damage
+        if (currentHealth < 0f) currentHealth = 0f
+
+        // Visual feedback
+        isHit = true
+        hitFlashTime = hitFlashDuration
+
+        // Apply knockback
+        knockbackVelocityX = knockbackX
+        knockbackVelocityY = knockbackY
+    }
+
+    fun isDead(): Boolean = currentHealth <= 0f
+
+    fun getHealthPercentage(): Float = currentHealth / maxHealth
 
     fun render(batch: SpriteBatch) {
         val isMoving = velocityX != 0f || velocityY != 0f
@@ -235,6 +322,11 @@ class Player : Disposable {
 
         val currentFrame = currentAnimation.getKeyFrame(stateTime, !isAttacking)
 
+        // Flash red when hit
+        if (isHit) {
+            batch.setColor(1f, 0.5f, 0.5f, 1f)
+        }
+
         // Flip sprite if facing left
         val shouldFlip = currentDirection == Direction.LEFT
         if (shouldFlip && !currentFrame.isFlipX) {
@@ -251,6 +343,9 @@ class Player : Disposable {
             size,
             size
         )
+
+        // Reset colour
+        batch.setColor(1f, 1f, 1f, 1f)
     }
 
     override fun dispose() {
