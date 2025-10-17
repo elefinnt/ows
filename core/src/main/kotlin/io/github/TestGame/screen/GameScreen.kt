@@ -53,6 +53,9 @@ class GameScreen : KtxScreen {
 
         // Spawn power-ups in visible area
         spawnPowerUps()
+        
+        // Update power-up animations
+        powerUps.values.forEach { it.update(delta) }
 
         // Check power-up collisions
         checkPowerUpCollisions()
@@ -79,16 +82,12 @@ class GameScreen : KtxScreen {
         // Draw animated player
         player.render(spriteBatch)
 
-        spriteBatch.end()
-
-        // Draw power-ups
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled)
-        powerUps.values.forEach { it.render(shapeRenderer) }
-        shapeRenderer.end()
+        // Draw power-ups (icons)
+        powerUps.values.forEach { it.render(spriteBatch) }
 
         // Draw enemies (sprites)
-        spriteBatch.begin()
         enemies.values.forEach { it.render(spriteBatch) }
+
         spriteBatch.end()
 
         // Draw joystick on top
@@ -283,6 +282,10 @@ class GameScreen : KtxScreen {
 
         // Dispose all enemies
         enemies.values.forEach { it.dispose() }
+        
+        // Dispose all power-ups
+        powerUps.values.forEach { it.dispose() }
+        PowerUp.disposeSharedTexture()
     }
 
     companion object {
